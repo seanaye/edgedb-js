@@ -122,12 +122,11 @@ export const generateObjectTypes = (params: GeneratorParams) => {
     if (type.kind !== "object") {
       continue;
     }
-    if (
-      (type.union_of && type.union_of.length) ||
-      (type.intersection_of && type.intersection_of.length)
-    ) {
+    if (type.intersection_of && type.intersection_of.length) {
       continue;
     }
+
+    const isUnionType = !!type.union_of?.length;
 
     const {mod, name} = splitName(type.name);
 
@@ -136,19 +135,6 @@ export const generateObjectTypes = (params: GeneratorParams) => {
     body.registerRef(type.name, type.id);
 
     const ref = getRef(type.name);
-
-    // const {name: pathName} = splitName(type.name);
-    // const typeName = displayName(type.name);
-
-    // get bases
-    // const bases: string[] = [];
-    // for (const {id: baseId} of type.bases) {
-    //   const baseName = getScopedDisplayName(
-    //     mod,
-    //     body
-    //   )(types.get(baseId).name);
-    //   bases.push(baseName);
-    // }
 
     const bases = type.bases.map(base => getRef(types.get(base.id).name));
 
@@ -191,6 +177,29 @@ export const generateObjectTypes = (params: GeneratorParams) => {
         };
       };
 
+    const getUnionCommonPointers = () => {
+      const unionTypes = type.union_of.map(({id}) => {
+        const t = types.get(id);
+        if (t.kind !== "object") {
+          throw new Error(
+            `type '${t.name}' of union '${type.name}' is not an object type`
+          );
+        }
+        return t;
+      });
+      const commonPointers: introspect.Pointer[] = [];
+      const [first, ...rest] = unionTypes;
+      const restPointerNames = rest.map(
+        t => new Set(t.pointers.map(p => p.name))
+      );
+      for (const pointer of first.pointers) {
+        if (restPointerNames.every(names => names.has(pointer.name))) {
+          commonPointers.push(pointer);
+        }
+      }
+      return commonPointers;
+    };
+
     // unique
     // const BaseObject = params.typesByName["std::BaseObject"];
     // const uniqueStubs = [...new Set(type.backlinks.map((bl) => bl.stub))];
@@ -204,11 +213,11 @@ export const generateObjectTypes = (params: GeneratorParams) => {
     //     pointers: null,
     //   };
     // });
-    const lines = [
-      ...type.pointers,
-      ...type.backlinks,
-      ...type.backlink_stubs,
-    ].map(ptrToLine);
+    const lines = (
+      isUnionType
+        ? getUnionCommonPointers()
+        : [...type.pointers, ...type.backlinks, ...type.backlink_stubs]
+    ).map(ptrToLine);
 
     // generate shape type
     const baseTypesUnion = bases.length
@@ -272,6 +281,11 @@ export const generateObjectTypes = (params: GeneratorParams) => {
     /////////
     // generate runtime type
     /////////
+    if (isUnionType) {
+      // union types don't need runtime type
+      continue;
+    }
+
     const literal = getRef(type.name, {prefix: ""});
 
     body.writeln([
