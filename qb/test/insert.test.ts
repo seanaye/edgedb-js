@@ -216,3 +216,13 @@ test("complex raw data in inserts", async () => {
     stringsMulti: strings,
   });
 });
+
+test("type union links", async () => {
+  const query = e.insert(e.Z, {
+    xy: e.insert(e.Y, {
+      c: true,
+    }),
+  });
+
+  await query.run(client);
+});
